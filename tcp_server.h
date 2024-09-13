@@ -105,3 +105,6 @@ void handle_client(int client_sock, int client_id, int pipe_read, int pipe_write
         broadcast_message(client_sock, message, client_name);  // 메시지와 함께 클라이언트 이름을 브로드캐스트 함수로 전달
     }
 }
+
+
+
