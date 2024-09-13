@@ -1,87 +1,26 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <sys/wait.h>
-#include <signal.h>
-#include <fcntl.h>
-#include <errno.h>
+#include "tcp_server.h"
 
 #define TCP_PORT 5100
 #define MAX_CLIENTS 10
-#define BUFSIZ 2048
+#define BUFSIZE 2048
 
 int client_sockets[MAX_CLIENTS];  // 클라이언트 소켓 배열
-
-void sigchld_handler(int sig) {
-    // 자식 프로세스 종료 처리
-    while (waitpid(-1, NULL, WNOHANG) > 0);
-}
-
-void print_client_sockets() {
-    printf("Current client sockets: ");
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        printf("%d ", client_sockets[i]);
-    }
-    printf("\n");
-}
-
-void broadcast_message(int sender_sock, char *message) {
-    print_client_sockets();
-    int active_clients = 0;
-    printf("Broadcasting message: %s\n", message);
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (client_sockets[i] != -1 && client_sockets[i] != sender_sock) {
-            active_clients++;
-            if (send(client_sockets[i], message, strlen(message), 0) < 0) {
-                perror("send() error");
-                close(client_sockets[i]);
-                client_sockets[i] = -1;
-            }
-        }
-    }
-    if (active_clients == 0) {
-        printf("No active clients to receive the message.\n");
-    } else {
-        printf("Message sent to %d clients.\n", active_clients);
-    }
-}
-
-void handle_client(int client_sock) {
-    char message[BUFSIZ];
-    char client_name[BUFSIZ];
-    int n;
-
-    if ((n = recv(client_sock, client_name, BUFSIZ, 0)) <= 0) {
-        perror("Failed to receive client name");
-        close(client_sock);
-        return;
-    }
-    client_name[n] = '\0';
-    printf("Client '%s' connected.\n", client_name);
-
-    while (1) {
-        if ((n = recv(client_sock, message, BUFSIZ, 0)) <= 0) {
-            if (n == 0) {
-                printf("Client '%s' disconnected.\n", client_name);
-            } else {
-                perror("recv() error");
-            }
-            break;
-        }
-        message[n] = '\0';
-        printf("Received from %s: %s\n", client_name, message);
-        broadcast_message(client_sock, message);
-    }
-    close(client_sock);
-}
+int pipefd[MAX_CLIENTS][2];       // 부모 -> 자식
+int pipefd_back[MAX_CLIENTS][2];  // 자식 -> 부모
 
 int main() {
     int listen_sock, client_sock;
     struct sockaddr_in servaddr, cliaddr;
     socklen_t clen = sizeof(cliaddr);
+    pid_t pid;
+
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        client_sockets[i] = -1;
+        if (pipe(pipefd[i]) == -1 || pipe(pipefd_back[i]) == -1) {
+            perror("Error initializing pipe");
+            exit(1);
+        }
+    }
 
     listen_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_sock < 0) {
@@ -112,10 +51,6 @@ int main() {
 
     signal(SIGCHLD, sigchld_handler);
 
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        client_sockets[i] = -1; // Initialize client sockets array
-    }
-
     while (1) {
         client_sock = accept(listen_sock, (struct sockaddr *)&cliaddr, &clen);
         if (client_sock < 0) {
@@ -136,10 +71,10 @@ int main() {
             printf("Maximum clients connected. Connection refused.\n");
             close(client_sock);
         } else {
-            print_client_sockets(); // Print the status of client sockets
-            if (fork() == 0) { // Child process
+            pid = fork();
+            if (pid == 0) {// 자식프로세스일때 
                 close(listen_sock);
-                handle_client(client_sock);
+                handle_client(client_sock, client_id, pipefd[client_id][0], pipefd_back[client_id][1]);
                 exit(0);
             }
         }
