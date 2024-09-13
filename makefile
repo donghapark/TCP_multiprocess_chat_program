@@ -1,4 +1,5 @@
 CC = gcc
+#CC = aarch64-linux-gnu-gcc-12
 
 TARGETS = tcp_server tcp_client
 
@@ -16,10 +17,7 @@ tcp_server: $(TCP_SERVER_OBJ)
 tcp_client: $(TCP_CLIENT_OBJ)
 	$(CC) -o $@ $(TCP_CLIENT_OBJ)
 
-tcp_server.o: tcp_server.c tcp_server.h
-	$(CC) -c tcp_server.c -o tcp_server.o
-
-%.o: %.c
+%.o: %.c %.h
 	$(CC) -c $< -o $@
 
 clean:
